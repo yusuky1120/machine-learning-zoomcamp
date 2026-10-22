@@ -1,0 +1,44 @@
+name: Rewrite comsq commit attribution
+on:
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  rewrite:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Rewrite author and committer, with backup
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git branch --show-current)" = "main"
+          old_head="$(git rev-parse HEAD)"
+          backup="backup/pre-author-rewrite-$(date -u +%Y%m%d-%H%M%S)"
+          git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git push origin "HEAD:refs/heads/${backup}"
+          python -m pip install --user git-filter-repo
+          export PATH="$HOME/.local/bin:$PATH"
+          git filter-repo --force --commit-callback '
+          old = b"murooka_yusuke@comsq.com"
+          new_email = b"77489049ad@gmail.com"
+          new_name = b"yusuky1120"
+          if commit.author_email == old:
+              commit.author_email = new_email
+              commit.author_name = new_name
+          if commit.committer_email == old:
+              commit.committer_email = new_email
+              commit.committer_name = new_name
+          '
+          if git log main --format='%ae%n%ce' | grep -Fx 'murooka_yusuke@comsq.com'; then
+            echo "Old email remains; refusing to update main"
+            exit 1
+          fi
+          git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git push --force-with-lease="refs/heads/main:${old_head}" origin main
+          echo "Backup branch: ${backup}"
